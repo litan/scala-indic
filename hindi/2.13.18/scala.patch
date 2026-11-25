@@ -1,0 +1,343 @@
+diff --git a/.gitignore b/.gitignore
+index a88415121b92ede961b70466a903ccca9ea504d7..a75d2e10d80b0e2f3d4569265625cdb78a9a9688 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -68,3 +68,6 @@ project/**/metals.sbt
+ 
+ .bsp
+ .history
++
++# Hindi smoke-test compiler output
++hi-tests/target/
+diff --git a/BUILD-HI.md b/BUILD-HI.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..7a9fd6673b345384732ad8ee0d878da5e75a0c16
+--- /dev/null
++++ b/BUILD-HI.md
+@@ -0,0 +1,122 @@
++# Build Scala with Hindi keywords for Kojo
++
++## Source and scope
++
++- Origin: https://github.com/scala/scala.git
++- Baseline: `v2.13.18`, commit `98f40d00ddcf59a802862d38a9fe79806cde59fa`.
++- Checkout: pinned upstream baseline with the Hindi patch applied; a detached HEAD is supported.
++- Added aliases: `मान` = `val`, `चर` = `var`, `परिभाषा` = `def`, `यदि` = `if`, `अन्यथा` = `else`.
++- English keywords remain supported. Only these five Hindi words become reserved;
++  longer identifiers and backquoted uses remain valid.
++- Build version: `2.13.18-bin-hi`, to identify this modified compiler.
++
++The implementation follows the Turkish compiler patch attached to
++https://github.com/bulent2k2/scala-2/releases/tag/v2.13.18-tr.
++Hindi names are registered in
++`src/reflect/scala/reflect/internal/StdNames.scala` and mapped to existing tokens
++in `src/compiler/scala/tools/nsc/ast/parser/Scanners.scala`. Aliases come before
++English entries in `allKeywords` so diagnostics retain English token names.
++The parser and compiler command-line banner are unchanged.
++
++## Prerequisites and directory layout
++
++Use a JDK, Bash, Git, curl, Python 3, sha256sum, and an internet connection for the first build.
++This build was tested with the Java on PATH: AdoptOpenJDK 1.8.0_265.
++The build bootstraps with Scala 2.13.17, as specified by upstream
++`versions.properties`; the resulting compiler is 2.13.18 with the Hindi patch.
++
++Prepare the workspace using [the shared recipe](../README.md). It contains
++sibling directories `scala/`, `scalariform/`, `tools/`, `logs/`, and `artifacts/`.
++The commands below use the `workspace` variable set during preparation. In a
++new shell, set it to the printed absolute workspace path.
++
++`../tools/sbt` uses the pinned sbt launcher (`sbt-launch` 1.11.7), the sbt version
++specified by this checkout (1.11.7), Maven Central, and a workspace-specific
++sbt global configuration, so user-global sbt plugins do not affect this build.
++It defaults to `java` on PATH, a 2 GB maximum heap, and four active processors.
++Optionally set `KOJO_HI_JAVA=/absolute/path/to/jdk/bin/java`.
++
++If the sibling launcher needs to be restored:
++
++```bash
++curl -fL https://repo.maven.apache.org/maven2/org/scala-sbt/sbt-launch/1.11.7/sbt-launch-1.11.7.jar \
++  -o ../tools/sbt-launch.jar
++```
++
++## Build and verify
++
++```bash
++cd "$workspace/scala"
++./build-hi.sh
++```
++
++The script performs:
++
++```bash
++../tools/sbt 'set Global / baseVersionSuffix := "bin-hi"' dist/mkPack
++```
++
++It builds the distribution and runs `./verify-hi.sh` against its jars. The full
++distribution remains under `build/pack/`, including command-line launchers and
++optional REPL support jars. This component build does not publish a partial
++release into `../artifacts/`.
++
++After building Scala, run the sibling Scalariform build to test the complete
++set and stage the release:
++
++```bash
++../scalariform/build-hi.sh
++```
++
++Alternatively, run `./build-hi.sh` from the workspace root to build both
++components in order. The final packaging step copies the four release jars,
++writes a checksum file for just those jars, and creates `LICENSES.zip`. Details
++are in [the release packaging instructions](../README.md#package-and-publish-release-assets).
++For an ordinary sbt installation, the equivalent build command is:
++
++```bash
++sbt 'set Global / baseVersionSuffix := "bin-hi"' dist/mkPack
++```
++
++Run only the packaged-jar smoke tests with:
++
++```bash
++./verify-hi.sh
++```
++
++The checks cover Hindi values, mutable variables, functions, constructor fields,
++English/Hindi mixing, conditional branches, nested and chained conditionals,
++evaluation of only the selected branch, longer Hindi identifiers, backquoted identifiers,
++comments, strings and interpolation. They also reject reassignment to `मान` and
++exercise both `IMain` (using the same constructor as Kojo) and the presentation
++compiler. Sources and the negative-test diagnostic are under `hi-tests/`.
++This does not run Scala's entire upstream compiler test suite.
++
++## Outputs and use
++
++- `build/pack/lib/scala-library.jar`
++- `build/pack/lib/scala-reflect.jar`
++- `build/pack/lib/scala-compiler.jar`
++- Staged copies after the full build: `../artifacts/scala-{library,reflect,compiler}.jar`.
++
++Keep these three jars together rather than mixing them with stock Scala jars.
++Build the sibling Scalariform checkout using its `BUILD-HI.md` to complete the
++four-jar Kojo toolchain. No existing Kojo installation is modified by these scripts.
++
++Example after the full release has been staged:
++
++```bash
++mkdir -p hi-tests/target
++java -cp '../artifacts/*' scala.tools.nsc.Main -usejavacp -encoding UTF-8 \
++  -d hi-tests/target hi-tests/HindiKeywordsSmoke.scala
++java -cp 'hi-tests/target:../artifacts/*' HindiKeywordsSmoke
++```
++
++The shared recipe captures the complete build and verification output in
++`../logs/build.log`.
++
++## Verified result
++
++The initial distribution build and the complete `build-hi.sh` run succeeded
++on Java 1.8.0_265. Batch compilation, IMain, presentation-compiler and
++val-reassignment checks all passed.
+diff --git a/build-hi.sh b/build-hi.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..57a4944ab845523edbfa3117a35f32cb1305c4a7
+--- /dev/null
++++ b/build-hi.sh
+@@ -0,0 +1,5 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
++../tools/sbt 'set Global / baseVersionSuffix := "bin-hi"' dist/mkPack
++./verify-hi.sh
+diff --git a/hi-tests/HindiCompilerServicesSmoke.scala b/hi-tests/HindiCompilerServicesSmoke.scala
+new file mode 100644
+index 0000000000000000000000000000000000000000..72da0398a7bdac7d750b26e7f4cda961658e6561
+--- /dev/null
++++ b/hi-tests/HindiCompilerServicesSmoke.scala
+@@ -0,0 +1,49 @@
++import java.io.{PrintWriter, StringWriter}
++import scala.reflect.internal.util.BatchSourceFile
++import scala.tools.nsc.Settings
++import scala.tools.nsc.interactive.{Global, Response}
++import scala.tools.nsc.interpreter.{IMain, Results}
++import scala.tools.nsc.interpreter.shell.ReplReporterImpl
++import scala.tools.nsc.reporters.StoreReporter
++
++object HindiCompilerServicesSmoke {
++  def main(args: Array[String]): Unit = {
++    val settings = new Settings
++    settings.usejavacp.value = true
++    val output = new StringWriter
++    val interpreter = new IMain(settings, None, settings,
++      new ReplReporterImpl(settings, new PrintWriter(output)))
++    try {
++      for (code <- List("मान सीमा = 10", "चर गिनती = 0",
++          "परिभाषा दोगुना(संख्या: Int) = संख्या * 2",
++          "गिनती = दोगुना(सीमा)", "assert(गिनती == 20)",
++          "मान चयन = यदि (गिनती == 20) 1 अन्यथा 2", "assert(चयन == 1)",
++          "मान दूसरा = यदि (false) 1 अन्यथा यदि (true) 2 अन्यथा 3", "assert(दूसरा == 2)",
++          "assert((यदि (false) 1 else 2) == 2)", "assert((if (true) 1 अन्यथा 2) == 1)")) {
++        assert(interpreter.interpret(code) == Results.Success, code + "\n" + output)
++      }
++      println("Hindi interpreter smoke test passed")
++    } finally interpreter.close()
++
++    val reporter = new StoreReporter(settings)
++    val compiler = new Global(settings, reporter)
++    def await[A](response: Response[A]): A = response.get(30000L) match {
++      case Some(Left(value)) => value
++      case Some(Right(error)) => throw error
++      case None => throw new AssertionError("Presentation compiler timed out")
++    }
++    try {
++      val source = new BatchSourceFile("HindiPresentation.scala",
++        "object Demo { मान सीमा = 10; चर गिनती = 0; परिभाषा दोगुना(संख्या: Int) = संख्या * 2; गिनती = दोगुना(सीमा); मान चयन = यदि (गिनती > 0) दोगुना(गिनती) अन्यथा यदि (गिनती == 0) 0 अन्यथा -1 }")
++      val reload = new Response[Unit]
++      compiler.askReload(List(source), reload)
++      await(reload)
++      val typed = new Response[compiler.Tree]
++      compiler.askLoadedTyped(source, true, typed)
++      val tree = await(typed)
++      assert(!reporter.hasErrors, reporter.infos.mkString("\n"))
++      assert(tree.toString.contains("दोगुना"), tree.toString)
++      println("Hindi presentation compiler smoke test passed")
++    } finally compiler.askShutdown()
++  }
++}
+diff --git a/hi-tests/HindiKeywordsSmoke.scala b/hi-tests/HindiKeywordsSmoke.scala
+new file mode 100644
+index 0000000000000000000000000000000000000000..170e7541c0f04bd36c548ccba1cca323a330a54e
+--- /dev/null
++++ b/hi-tests/HindiKeywordsSmoke.scala
+@@ -0,0 +1,61 @@
++object HindiKeywordsSmoke {
++  मान सीमा = 10
++  चर गिनती = 0
++  परिभाषा दोगुना(संख्या: Int): Int = संख्या * 2
++
++  class Counter(मान start: Int, चर current: Int) {
++    परिभाषा advance(): Int = { current += start; current }
++  }
++
++  def main(args: Array[String]): Unit = {
++    गिनती = दोगुना(सीमा)
++    assert(गिनती == 20)
++    assert(new Counter(2, 3).advance() == 5)
++    val मानक = 1
++    val चरित्र = 2
++    val परिभाषाएँ = 3
++    val `मान` = 4
++    val `चर` = 5
++    val `परिभाषा` = 6
++    assert(मानक + चरित्र + परिभाषाएँ + `मान` + `चर` + `परिभाषा` == 21)
++    // मान चर परिभाषा must remain comment text.
++    val text = "मान चर परिभाषा"
++    assert(text == List("मान", "चर", "परिभाषा").mkString(" "))
++    val message = s"गिनती: ${दोगुना(सीमा)}"
++    assert(message == "गिनती: 20")
++    परिभाषा चुनें(संख्या: Int): Int =
++      यदि (संख्या > 0) 1 अन्यथा यदि (संख्या == 0) 0 अन्यथा -1
++    assert(चुनें(2) == 1 && चुनें(0) == 0 && चुनें(-2) == -1)
++    for (condition <- List(true, false)) {
++      val expected = if (condition) 1 else 2
++      assert((यदि (condition) 1 अन्यथा 2) == expected)
++      assert((यदि (condition) 1 else 2) == expected)
++      assert((if (condition) 1 अन्यथा 2) == expected)
++    }
++    // A missing else returns Unit; a nested else belongs to the nearest if.
++    चर शाखा = 0
++    यदि (false) शाखा = 99
++    assert(शाखा == 0)
++    यदि (true) यदि (false) शाखा = 1 अन्यथा शाखा = 2
++    assert(शाखा == 2)
++    यदि (false) {
++      शाखा = 3
++    }
++    अन्यथा {
++      शाखा = 4
++    }
++    assert(शाखा == 4)
++    assert((यदि (true) 1 अन्यथा sys.error("unused else")) == 1)
++    assert((यदि (false) sys.error("unused if") अन्यथा 2) == 2)
++    val यदिविकल्प = 7
++    val अन्यथाविकल्प = 8
++    val `यदि` = 9
++    val `अन्यथा` = 10
++    assert(यदिविकल्प + अन्यथाविकल्प + `यदि` + `अन्यथा` == 34)
++    // यदि अन्यथा must remain comment text.
++    val conditionalText = "यदि अन्यथा"
++    assert(conditionalText == List("यदि", "अन्यथा").mkString(" "))
++    assert(s"result: ${यदि (true) 1 अन्यथा 2}" == "result: 1")
++    println("Hindi compiler smoke test passed")
++  }
++}
+diff --git a/hi-tests/HindiValReassignment.scala b/hi-tests/HindiValReassignment.scala
+new file mode 100644
+index 0000000000000000000000000000000000000000..de8352262c3ccaff3be6318473b3c647170bf8d1
+--- /dev/null
++++ b/hi-tests/HindiValReassignment.scala
+@@ -0,0 +1,4 @@
++object HindiValReassignment {
++  मान संख्या = 1
++  संख्या = 2
++}
+diff --git a/src/compiler/scala/tools/nsc/ast/parser/Scanners.scala b/src/compiler/scala/tools/nsc/ast/parser/Scanners.scala
+index 99edf1e42dc5292cfb7b852c90737f70b9c36fd5..1854208961444bbd56ba13314679a30de3dc91c4 100644
+--- a/src/compiler/scala/tools/nsc/ast/parser/Scanners.scala
++++ b/src/compiler/scala/tools/nsc/ast/parser/Scanners.scala
+@@ -1475,6 +1475,13 @@ trait Scanners extends ScannersCommon {
+   // ------------- keyword configuration -----------------------------------
+ 
+   private val allKeywords = List[(Name, Token)](
++    // Aliases precede English entries so diagnostics retain English token names.
++    nme.hiVALkw -> VAL,
++    nme.hiVARkw -> VAR,
++    nme.hiDEFkw -> DEF,
++    nme.hiIFkw -> IF,
++    nme.hiELSEkw -> ELSE,
++
+     nme.ABSTRACTkw  -> ABSTRACT,
+     nme.CASEkw      -> CASE,
+     nme.CATCHkw     -> CATCH,
+diff --git a/src/reflect/scala/reflect/internal/StdNames.scala b/src/reflect/scala/reflect/internal/StdNames.scala
+index 9775fa7bcdc09ca2a643f6b46a7f63306e0df3f8..5fa50b84880cea8a7496d89a027a410fce1ca899 100644
+--- a/src/reflect/scala/reflect/internal/StdNames.scala
++++ b/src/reflect/scala/reflect/internal/StdNames.scala
+@@ -231,6 +231,13 @@ trait StdNames {
+     final val HASHkw: TermName      = kw("#")
+     final val ATkw: TermName        = kw("@")
+ 
++    // Hindi aliases for Kojo; retain the English keywords.
++    final val hiVALkw: TermName = kw("मान")
++    final val hiVARkw: TermName = kw("चर")
++    final val hiDEFkw: TermName = kw("परिभाषा")
++    final val hiIFkw: TermName = kw("यदि")
++    final val hiELSEkw: TermName = kw("अन्यथा")
++
+     final val keywords = kw.result
+   } with CommonNames {
+     final val javaKeywords = new JavaKeywords()
+diff --git a/verify-hi.sh b/verify-hi.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..1217f6dcfe1c6b3387fb0a074529b4f872262807
+--- /dev/null
++++ b/verify-hi.sh
+@@ -0,0 +1,19 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
++kojo_hi_java=${KOJO_HI_JAVA:-java}
++kojo_hi_cp="build/pack/lib/*"
++mkdir -p hi-tests/target
++"$kojo_hi_java" -Dfile.encoding=UTF-8 -cp "$kojo_hi_cp" scala.tools.nsc.Main \
++  -usejavacp -encoding UTF-8 -d hi-tests/target \
++  hi-tests/HindiKeywordsSmoke.scala hi-tests/HindiCompilerServicesSmoke.scala
++"$kojo_hi_java" -Dfile.encoding=UTF-8 -cp "hi-tests/target:$kojo_hi_cp" HindiKeywordsSmoke
++"$kojo_hi_java" -Dfile.encoding=UTF-8 -cp "hi-tests/target:$kojo_hi_cp" HindiCompilerServicesSmoke
++if "$kojo_hi_java" -Dfile.encoding=UTF-8 -cp "$kojo_hi_cp" scala.tools.nsc.Main \
++    -usejavacp -encoding UTF-8 -d hi-tests/target hi-tests/HindiValReassignment.scala \
++    > hi-tests/target/val-reassignment.log 2>&1; then
++  echo 'FAIL: reassigning a Hindi val unexpectedly compiled' >&2
++  exit 1
++fi
++grep -q 'reassignment to val' hi-tests/target/val-reassignment.log
++echo 'Hindi val reassignment correctly rejected'

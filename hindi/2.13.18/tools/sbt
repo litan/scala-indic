@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+kojo_hi_tools=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+kojo_hi_java=${KOJO_HI_JAVA:-java}
+exec "$kojo_hi_java" -Xms256m -Xmx2g -Xss2m -XX:ActiveProcessorCount=4 \
+  -Dfile.encoding=UTF-8 -Dsbt.supershell=false -Dsbt.color=false \
+  -Dsbt.global.base="$kojo_hi_tools/sbt-global" \
+  -Dsbt.override.build.repos=true -Dsbt.repository.config="$kojo_hi_tools/repositories" \
+  -jar "$kojo_hi_tools/sbt-launch.jar" "$@"

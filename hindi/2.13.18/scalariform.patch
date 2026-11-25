@@ -1,0 +1,324 @@
+diff --git a/.gitignore b/.gitignore
+index ba0b2b4c67b333ba31f0dc774053ab6aafd83042..6592896b68f81edcde4f8722961a79629daef296 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -8,3 +8,10 @@ bin/
+ .project
+ .cache*
+ *~
++
++# Dedicated Hindi library build
++hi-build/target/
++hi-build/project/target/
++
++# Hindi smoke-test compiler output
++hi-tests/target/
+diff --git a/BUILD-HI.md b/BUILD-HI.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..7c56ab562f27061d21b41877f2ad946524e8000b
+--- /dev/null
++++ b/BUILD-HI.md
+@@ -0,0 +1,119 @@
++# Build Scalariform with Hindi keywords for Kojo
++
++## Source and scope
++
++- Clone origin: https://github.com/bulent2k2/scalariform.git
++- Baseline: commit `8cf96a69d7a87a4b4d31a4061b8eb1ca615fd896`, Scalariform 0.2.10,
++  immediately before that fork's Turkish keyword additions.
++- Checkout: pinned upstream baseline with the Hindi patch applied; a detached HEAD is supported.
++- Added aliases: `मान` = `VAL`, `चर` = `VAR`, `परिभाषा` = `DEF`, `यदि` = `IF`, `अन्यथा` = `ELSE`.
++- The English entries remain. Turkish aliases are not included in this Hindi build.
++
++Only `scalariform/src/main/scala/scalariform/lexer/Keywords.scala` needs a language
++change. Existing token types, parser, and formatting rules are reused, preserving
++Hindi source text rather than translating it back to English.
++
++The reference instructions are:
++- https://github.com/bulent2k2/scalariform/blob/master/README_bulent2k2
++- https://github.com/bulent2k2/scalariform/blob/master/Makefile
++- https://github.com/bulent2k2/scalariform/commit/f79bb1dbd46cb51874845333b65bec6e100cd623
++
++## Build definition and prerequisites
++
++The upstream root build uses sbt 1.2.8 and obsolete publishing/assembly plugins.
++An attempt to build it could not resolve four of those plugins from Maven Central.
++For repeatable library builds, use the added `hi-build/` sbt project. It compiles
++the original library and test sources with:
++
++- sbt 1.11.7 and Scala 2.13.18, targeting Java 8 bytecode;
++- the original runtime modules: scala-xml 1.2.0 and scala-parser-combinators 1.1.2;
++- stable ScalaTest 3.0.8 for the existing FlatSpec/Matchers test suite;
++- no publishing, formatting-on-compile, or assembly plugins.
++
++The resulting library version is `0.2.10-hi`. The dedicated build is intended
++for Kojo's plain JVM classpath; it does not reproduce the upstream OSGi manifest,
++CLI assembly, publishing configuration, or generated BuildInfo object.
++The original upstream build files remain untouched.
++
++Use the sibling `../tools/sbt` launcher. It defaults to `java` on PATH and was
++tested here with AdoptOpenJDK 1.8.0_265. Optionally set `KOJO_HI_JAVA` to a Java
++executable. Build the sibling Scala checkout first so its patched jars are
++available for the final integration check.
++
++## Build and verify
++
++Prepare the workspace using [the shared recipe](../README.md). These commands
++use its `workspace` variable; in a new shell set it to the printed absolute path.
++
++```bash
++cd "$workspace/scala"
++./build-hi.sh
++cd ../scalariform
++./build-hi.sh
++```
++
++The Scalariform script runs:
++
++```bash
++cd hi-build
++../../tools/sbt test packageBin stageRuntimeDependencies
++```
++
++The two runtime modules are staged under
++`hi-build/target/runtime-dependencies/`, outside the release artifacts. Kojo
++already depends on these module versions. The verification script uses those
++modules, the built formatter jar and the sibling Scala distribution directly.
++
++After the checks pass, `../tools/package-release.py` stages exactly four jars,
++`SHA256SUMS` and `LICENSES.zip` in `../artifacts/`. Checksums cover only the four
++release jars. The license archive is collected from the Scala and Scalariform
++source checkouts and includes the upstream license, NOTICE and third-party
++license texts. No dependency jars or documentation are staged in `artifacts/`.
++See [the release packaging instructions](../README.md#package-and-publish-release-assets)
++for the release file list.
++
++Run only the library tests:
++
++```bash
++(cd "$workspace/scalariform/hi-build" && ../../tools/sbt test)
++```
++
++Run only the new Hindi tests:
++
++```bash
++(cd "$workspace/scalariform/hi-build" && ../../tools/sbt 'testOnly scalariform.lexer.HindiKeywordsTest')
++```
++
++Run the built-jar integration check after building Scala and staging formatter dependencies:
++
++```bash
++(cd "$workspace/scalariform" && ./verify-hi.sh)
++```
++
++`HindiKeywordsTest` checks token types, source offsets and exact Hindi spelling,
++longer identifiers, backquoted identifiers, comments and strings, mixed English
++and Hindi formatting, conditional forms with mixed English/Hindi keywords,
++and formatting idempotence. The jar integration check
++formats the sibling compiler's smoke-test source, then compiles and runs that
++formatted source with the built Hindi compiler. The test output is kept under
++`hi-tests/target/`.
++
++## Outputs
++
++- Primary library: `hi-build/target/scala-2.13/scalariform.jar`.
++- Ready-to-use copy: `../artifacts/scalariform.jar`.
++- Runtime modules for local verification: `hi-build/target/runtime-dependencies/`.
++- Other release files: three matching Scala jars, `SHA256SUMS` and `LICENSES.zip`.
++- Artifact documentation: [the shared recipe](../README.md#package-and-publish-release-assets).
++- Combined build and verification log: `../logs/build.log`.
++
++Kojo's Hindi toolchain uses this `scalariform.jar` with all three matching Hindi
++Scala jars. These scripts stage the files in this workspace; provisioning a
++Kojo installation is a separate step described in the `scala-indic` repository
++README.
++
++## Verified result
++
++The complete `build-hi.sh` run succeeded on Java 1.8.0_265: 1,021 tests
++passed across 40 suites, with 4 upstream tests pending. The staged-jar
++format/compile/run integration check passed.
+diff --git a/build-hi.sh b/build-hi.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..1bd60dd4e5858907b5a2529338d7b8a24d2c15ed
+--- /dev/null
++++ b/build-hi.sh
+@@ -0,0 +1,6 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
++(cd hi-build && ../../tools/sbt test packageBin stageRuntimeDependencies)
++./verify-hi.sh
++python3 ../tools/package-release.py
+diff --git a/hi-build/build.sbt b/hi-build/build.sbt
+new file mode 100644
+index 0000000000000000000000000000000000000000..3c309796dcd0cabd8fc58b2ae1ceb36a4973012e
+--- /dev/null
++++ b/hi-build/build.sbt
+@@ -0,0 +1,28 @@
++// Dedicated library build: avoid the upstream build's obsolete publishing plugins.
++scalaVersion := "2.13.18"
++organization := "org.scalariform"
++name := "scalariform"
++version := "0.2.10-hi"
++
++Compile / unmanagedSourceDirectories := Seq(baseDirectory.value / "../scalariform/src/main/scala")
++Test / unmanagedSourceDirectories := Seq(baseDirectory.value / "../scalariform/src/test/scala")
++Compile / scalacOptions ++= Seq("-encoding", "UTF-8", "-target:jvm-1.8", "-language:implicitConversions", "-language:postfixOps")
++Test / scalacOptions ++= Seq("-encoding", "UTF-8", "-language:implicitConversions", "-language:postfixOps")
++libraryDependencies ++= Seq(
++  "org.scala-lang.modules" %% "scala-xml" % "1.2.0",
++  "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2",
++  "org.scalatest" %% "scalatest" % "3.0.8" % Test
++)
++Compile / packageBin / artifactName := { (_, _, _) => "scalariform.jar" }
++Test / parallelExecution := false
++
++// Keep external formatter modules in the build output, outside the release artifacts.
++// Verification uses the matching Hindi Scala library from the Scala build.
++val stageRuntimeDependencies = taskKey[Unit]("Stage formatter runtime modules for local verification")
++stageRuntimeDependencies := {
++  val out = target.value / "runtime-dependencies"
++  IO.createDirectory(out)
++  val jars = (Runtime / dependencyClasspath).value.map(_.data)
++    .filter(f => f.isFile && !f.getName.startsWith("scala-library-"))
++  IO.copy(jars.map(f => f -> (out / f.getName)))
++}
+diff --git a/hi-build/project/build.properties b/hi-build/project/build.properties
+new file mode 100644
+index 0000000000000000000000000000000000000000..01a16ed14650525434aedd0ed7a50c4d85bb2a66
+--- /dev/null
++++ b/hi-build/project/build.properties
+@@ -0,0 +1 @@
++sbt.version=1.11.7
+diff --git a/hi-tests/ScalariformSmoke.scala b/hi-tests/ScalariformSmoke.scala
+new file mode 100644
+index 0000000000000000000000000000000000000000..796e197ff9d9495ae8cbda316c7c68392856b322
+--- /dev/null
++++ b/hi-tests/ScalariformSmoke.scala
+@@ -0,0 +1,22 @@
++import java.nio.charset.StandardCharsets.UTF_8
++import java.nio.file.{Files, Paths}
++import scalariform.formatter.ScalaFormatter
++import scalariform.lexer.{ScalaLexer, Tokens}
++
++object ScalariformSmoke {
++  def main(args: Array[String]): Unit = {
++    val original = new String(Files.readAllBytes(Paths.get(args(0))), UTF_8)
++    val formatted = ScalaFormatter.format(original)
++    for ((word, kind) <- List("मान" -> Tokens.VAL, "चर" -> Tokens.VAR, "परिभाषा" -> Tokens.DEF,
++        "यदि" -> Tokens.IF, "अन्यथा" -> Tokens.ELSE)) {
++      assert(ScalaLexer.rawTokenise(formatted).exists(t => t.text == word && t.tokenType == kind), word)
++    }
++    assert(ScalaFormatter.format(formatted) == formatted)
++    assert(formatted.contains("\"मान चर परिभाषा\""))
++    assert(formatted.contains("// मान चर परिभाषा"))
++    assert(formatted.contains("\"यदि अन्यथा\""))
++    assert(formatted.contains("// यदि अन्यथा"))
++    Files.write(Paths.get(args(1)), formatted.getBytes(UTF_8))
++    println("Hindi formatter jar smoke test passed")
++  }
++}
+diff --git a/scalariform/src/main/scala/scalariform/lexer/Keywords.scala b/scalariform/src/main/scala/scalariform/lexer/Keywords.scala
+index 7baf1e08194ccaaa1aebcd9369be7de889cbd9aa..25e29cf5893541b88bc713533601feda6568451d 100644
+--- a/scalariform/src/main/scala/scalariform/lexer/Keywords.scala
++++ b/scalariform/src/main/scala/scalariform/lexer/Keywords.scala
+@@ -7,6 +7,12 @@ object Keywords {
+   def apply(s: String): Option[TokenType] = keywords get s
+ 
+   private val keywords = Map(
++    // Hindi aliases share token types and preserve their original source text.
++    "मान" -> VAL,
++    "चर" -> VAR,
++    "परिभाषा" -> DEF,
++    "यदि" -> IF,
++    "अन्यथा" -> ELSE,
+     "abstract" -> ABSTRACT,
+     "case" -> CASE,
+     "catch" -> CATCH,
+diff --git a/scalariform/src/test/scala/scalariform/lexer/HindiKeywordsTest.scala b/scalariform/src/test/scala/scalariform/lexer/HindiKeywordsTest.scala
+new file mode 100644
+index 0000000000000000000000000000000000000000..6d0ce3490d2e42471bff9158c63625ae2caca877
+--- /dev/null
++++ b/scalariform/src/test/scala/scalariform/lexer/HindiKeywordsTest.scala
+@@ -0,0 +1,61 @@
++package scalariform.lexer
++
++import org.scalatest.{FlatSpec, Matchers}
++import scalariform.formatter.ScalaFormatter
++import scalariform.lexer.Tokens._
++
++class HindiKeywordsTest extends FlatSpec with Matchers {
++  "Hindi keywords" should "use existing tokens and retain source text and offsets" in {
++    val source = "मान सीमा = 10\nचर गिनती = 0\nपरिभाषा दोगुना(संख्या: Int) = यदि (संख्या > 0) संख्या * 2 अन्यथा 0"
++    val tokens = ScalaLexer.rawTokenise(source).filterNot(t => t.tokenType == WS || t.tokenType == EOF)
++    for ((word, kind) <- Seq("मान" -> VAL, "चर" -> VAR, "परिभाषा" -> DEF, "यदि" -> IF, "अन्यथा" -> ELSE)) {
++      val token = tokens.find(_.text == word).get
++      token.tokenType should equal(kind)
++      token.rawText should equal(word)
++      source.substring(token.offset, token.offset + token.length) should equal(word)
++    }
++  }
++
++  it should "leave longer identifiers, backquoted identifiers, comments and strings intact" in {
++    val source = "मानक चरित्र परिभाषाएँ यदिविकल्प अन्यथाविकल्प `मान` `चर` `परिभाषा` `यदि` `अन्यथा` \"मान चर परिभाषा यदि अन्यथा\" // मान चर परिभाषा यदि अन्यथा"
++    val tokens = ScalaLexer.rawTokenise(source).filterNot(t => t.tokenType == WS || t.tokenType == EOF)
++    tokens.take(10).map(_.tokenType) should equal(List.fill(10)(VARID))
++    tokens(10).tokenType should equal(STRING_LITERAL)
++    tokens(10).text should equal("\"मान चर परिभाषा यदि अन्यथा\"")
++    tokens(11).tokenType should equal(LINE_COMMENT)
++    tokens(11).text should equal("// मान चर परिभाषा यदि अन्यथा")
++  }
++
++  it should "format Hindi and English together without rewriting words" in {
++    val source = "object Demo{मान सीमा=10;चर गिनती=0;परिभाषा दोगुना(संख्या:Int)=संख्या*2;def english(x:Int)=दोगुना(x);val text=\"मान चर परिभाषा\";/* मान चर परिभाषा */}"
++    val formatted = ScalaFormatter.format(source)
++    formatted should include("मान सीमा = 10")
++    formatted should include("चर गिनती = 0")
++    formatted should include("परिभाषा दोगुना(संख्या: Int) = संख्या * 2")
++    formatted should include("def english(x: Int) = दोगुना(x)")
++    formatted should include("\"मान चर परिभाषा\"")
++    formatted should include("/* मान चर परिभाषा */")
++    ScalaFormatter.format(formatted) should equal(formatted)
++  }
++
++  it should "format conditional forms while preserving Hindi and English keywords" in {
++    val sources = Seq(
++      "val result=यदि(true)1 अन्यथा 2",
++      "val result=यदि(false)1 else 2",
++      "val result=if(true)1 अन्यथा 2",
++      "val result=if(false)1 else 2",
++      "val result=यदि(false)1 अन्यथा यदि(true)2 अन्यथा 3",
++      "यदि(true)यदि(false)println(1) अन्यथा println(2)",
++      "यदि(false)println(1)",
++      "यदि(true){println(1)}\nअन्यथा{println(2)}"
++    )
++    def conditionalWords(source: String): List[String] =
++      ScalaLexer.rawTokenise(source).filter(t => t.tokenType == IF || t.tokenType == ELSE).map(_.text)
++    for (source <- sources) {
++      val formatted = ScalaFormatter.format(source)
++      conditionalWords(formatted) should equal(conditionalWords(source))
++      ScalaFormatter.format(formatted) should equal(formatted)
++    }
++    ScalaFormatter.format("val result=यदि(true)1 अन्यथा 2") should equal("val result = यदि (true) 1 अन्यथा 2")
++  }
++}
+diff --git a/verify-hi.sh b/verify-hi.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..b138e30a392618195eb8ec2b6391f35dc6ef8b98
+--- /dev/null
++++ b/verify-hi.sh
+@@ -0,0 +1,13 @@
++#!/usr/bin/env bash
++set -euo pipefail
++cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
++kojo_hi_java=${KOJO_HI_JAVA:-java}
++kojo_hi_cp="../scala/build/pack/lib/scala-library.jar:../scala/build/pack/lib/scala-reflect.jar:../scala/build/pack/lib/scala-compiler.jar:hi-build/target/scala-2.13/scalariform.jar:hi-build/target/runtime-dependencies/*"
++mkdir -p hi-tests/target
++"$kojo_hi_java" -Dfile.encoding=UTF-8 -cp "$kojo_hi_cp" scala.tools.nsc.Main \
++  -usejavacp -encoding UTF-8 -d hi-tests/target hi-tests/ScalariformSmoke.scala
++"$kojo_hi_java" -Dfile.encoding=UTF-8 -cp "hi-tests/target:$kojo_hi_cp" ScalariformSmoke \
++  ../scala/hi-tests/HindiKeywordsSmoke.scala hi-tests/target/HindiKeywordsSmoke.scala
++"$kojo_hi_java" -Dfile.encoding=UTF-8 -cp "$kojo_hi_cp" scala.tools.nsc.Main \
++  -usejavacp -encoding UTF-8 -d hi-tests/target hi-tests/target/HindiKeywordsSmoke.scala
++"$kojo_hi_java" -Dfile.encoding=UTF-8 -cp "hi-tests/target:$kojo_hi_cp" HindiKeywordsSmoke

@@ -1,0 +1,6 @@
+# Build workspaces, outputs and caches do not belong in source recipes.
+/work/
+/artifacts/
+/logs/
+/hindi/*/tools/sbt-launch.jar
+/hindi/*/tools/sbt-global/

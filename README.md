@@ -1,12 +1,13 @@
 # scala-indic
 
-Release binaries for Scala toolchains with Indic-language keywords, including
-patched Scalariform for code formatting. These builds support programming in
-[Kojo](https://github.com/litan/kojo).
+Patches, build instructions and release binaries for Scala toolchains with
+Indic-language keywords, including patched Scalariform for code formatting.
+These builds support programming in [Kojo](https://github.com/litan/kojo).
 
-This repository is intended to hold documentation, license notices and release
-metadata. Built jars belong in GitHub release assets; full compiler and formatter
-source checkouts are maintained separately.
+This repository holds versioned patches, build instructions, shared build tools,
+license notices and release metadata. Built jars belong in GitHub release assets;
+full compiler and formatter source trees are fetched from pinned upstream commits
+when rebuilding.
 
 These are independently modified builds. They are not official Scala releases
 and are not endorsed by the Scala project. Upstream copyright and attribution
@@ -14,29 +15,30 @@ remain with their respective owners.
 
 ## Languages
 
-The initial Hindi build adds three keyword aliases. English keywords continue
-to work.
+The Hindi build adds five keyword aliases. English keywords continue to work.
 
 | Language | Code | Scala keyword | Localized keyword |
 | --- | --- | --- | --- |
 | Hindi | `hi` | `val` | `मान` |
 | Hindi | `hi` | `var` | `चर` |
 | Hindi | `hi` | `def` | `परिभाषा` |
+| Hindi | `hi` | `if` | `यदि` |
+| Hindi | `hi` | `else` | `अन्यथा` |
 
 ```scala
 मान सीमा = 10
 चर गिनती = 0
 परिभाषा दोगुना(संख्या: Int) = संख्या * 2
-गिनती = दोगुना(सीमा)
+गिनती = यदि (सीमा > 0) दोगुना(सीमा) अन्यथा 0
 ```
 
 Additional Indic languages can have their own releases and keyword sets.
 
 ## Releases and use
 
-Use tags of the form `v<scala-version>-<language-code>`, for example
-`v2.13.18-hi`. The initial builds have been prepared locally; creating this
-folder does not publish a release.
+Publish each toolchain as a GitHub Release whose tag identifies the matching
+recipe revision. The initial Hindi release uses `v2.13.18-hi`, following the
+`v<scala-version>-<language-code>` convention expected by Kojo.
 
 Each release should provide these runtime assets:
 
@@ -47,11 +49,12 @@ Each release should provide these runtime assets:
 | `scala-compiler.jar` | Compiler that recognizes the localized keywords |
 | `scalariform.jar` | Formatter that recognizes the same keywords |
 | `SHA256SUMS` | SHA-256 checksums for the four jars |
+| `LICENSES.zip` | Upstream license and attribution files |
 
-Also distribute a copy of the applicable license and attribution files with each
-release, for example in a `LICENSES.zip` containing this repository's `licenses/`
-directory. Keep notices already embedded inside jars intact. A link to a license
-alone is not a replacement for supplying the required license copies.
+The Hindi recipe packages these six files together. Its `LICENSES.zip` is
+collected from the pinned source checkouts and corresponds to this repository's
+`licenses/` directory. Keep notices already embedded inside jars intact. A link
+to a license alone is not a replacement for supplying the required license copies.
 
 After downloading a release's four jars and its checksum file into one directory:
 
@@ -70,30 +73,42 @@ also requires the runtime modules listed in the release's build instructions;
 Kojo already supplies scala-xml and scala-parser-combinators for the initial
 Hindi build.
 
-Kojo's local toolchain directory is:
+In Kojo builds with Hindi toolchain support, the toolchain directory is relative
+to the Kojo installation root:
 
 ```text
-toolchains/scala-hi/2.13.18/
+<kojo-installation>/toolchains/scala-hi/2.13.18/
 ```
 
 It contains the four runtime jars and `SHA256SUMS`. Select Hindi and fully restart
-Kojo to use the Hindi compiler and editor registration. Kojo's language download
-URL map must point Hindi to this repository when releases are published here.
+Kojo to use the Hindi compiler and editor registration. The current Kojo source
+already maps Hindi downloads to
+`https://github.com/litan/scala-indic/releases/download/v2.13.18-hi/`.
+Publishing the six assets at that tag supplies the files it expects; older Kojo
+builds need the corresponding Hindi toolchain support.
+
+Rebuild into a separate workspace using the recipe below, and generate release
+checksums from the exact jars being uploaded.
 
 ## Build provenance
 
-The initial Hindi artifacts were built with Java 8, with these source baselines:
+The Hindi toolchain uses Java 8 and these source baselines:
 
 | Component | Upstream source | Baseline | Modified build version |
 | --- | --- | --- | --- |
 | Scala | [scala/scala](https://github.com/scala/scala) | `v2.13.18`, commit `98f40d00ddcf59a802862d38a9fe79806cde59fa` | `2.13.18-bin-hi` |
 | Scalariform | [bulent2k2/scalariform](https://github.com/bulent2k2/scalariform) | commit `8cf96a69d7a87a4b4d31a4061b8eb1ca615fd896`, before the Turkish additions | `0.2.10-hi` |
 
-The source baselines alone do not include the Hindi modifications. For each
-release, attach or link the exact patches, build instructions, build-tool
-versions and validation results used for its jars. Keep that information pinned
-to the release so the modified build can be reproduced without storing full
-upstream source trees here.
+The [Hindi 2.13.18 build recipe](hindi/2.13.18/README.md) contains complete patches
+against these baselines, including all five aliases, tests and component build
+scripts. It also provides the shared build tools, their checksums, pinned tool
+versions and commands to fetch, patch, build, verify and package the toolchain.
+The recipe records the exact local source commits from which its patches were
+exported.
+
+Tag the matching recipe revision when publishing a binary release. Future
+versions or languages should have their own recipe directories so a release
+always identifies the patches and instructions used for its jars.
 
 ### Reference implementation and build guidance
 
@@ -108,20 +123,19 @@ and [Scalariform instructions](https://github.com/bulent2k2/scalariform/blob/mas
 also informed the local build process.
 
 The Hindi compiler adds names in `StdNames.scala` and maps them to existing
-`VAL`, `VAR` and `DEF` tokens in `Scanners.scala`. The Scalariform change adds
-the same three aliases in `lexer/Keywords.scala`. The formatter uses a dedicated
-library build to avoid obsolete upstream publishing plugins.
+`VAL`, `VAR`, `DEF`, `IF` and `ELSE` tokens in `Scanners.scala`. The Scalariform
+change adds the same five aliases in `lexer/Keywords.scala`. The formatter uses
+a dedicated library build to avoid obsolete upstream publishing plugins.
 
-The local source checkouts and build instructions are currently in:
+Start with the [versioned build instructions](hindi/2.13.18/README.md). Applying
+the patches also creates `scala/BUILD-HI.md` and `scalariform/BUILD-HI.md` in
+the rebuild workspace for component-specific details.
 
-- `~/work/kojo-hi/scala/BUILD-HI.md`
-- `~/work/kojo-hi/scalariform/BUILD-HI.md`
-
-Validation of the initial build covered compilation and execution, the Scala
-interpreter and presentation compiler, rejection of reassignment to `मान`, and
-formatting that preserves Hindi text. Scalariform passed 1,020 tests, with four
-upstream tests pending. These build checks do not constitute a run of Scala's
-entire upstream compiler suite.
+Validation of the five-alias build covered compilation and execution, the Scala
+interpreter and presentation compiler, rejection of reassignment to `मान`,
+conditional evaluation, and formatting that preserves Hindi text. Scalariform
+passed 1,021 tests, with four upstream tests pending. These build checks do not
+constitute a run of Scala's entire upstream compiler suite.
 
 ## Licensing and attribution
 
